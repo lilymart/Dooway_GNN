@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export PYTHONPATH=$PYTHONPATH:/Projects/Dooway_GNN/
+
 dataset_name="dooway" #1
 region="Basilicata"
 feats_dim="256"
@@ -17,8 +19,6 @@ for dir in "$embeddings_dir" "$models_dir" "$results_dir"; do
         mkdir -p "$dir"
     fi
 done
-
-export PYTHONPATH=$PYTHONPATH:/home/martirano/Projects/Dooway_GNN/src
 
 
 for seed_index in "${!training_seeds[@]}"  # Iterate over seed indices

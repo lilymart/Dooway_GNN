@@ -23,7 +23,7 @@ def set_random_seed(seed):
 
 
 def get_base_dir():
-    return '/mnt/nas/martirano/dooway'
+    return '/home/martirano/data/dooway'
 
 
 def get_device():
@@ -65,6 +65,57 @@ def compute_weights(targets):
     print(f"Computed weights: {weights}")
 
     return weights
+
+
+def compute_weights_safe(targets, num_classes=None):
+    total_samples = len(targets)
+    class_counts = torch.bincount(targets, minlength=num_classes)
+
+    # Avoid division by zero: set zero counts to 1 (dummy value)
+    safe_counts = class_counts.clone()
+    safe_counts[safe_counts == 0] = 1
+
+    weights = total_samples / safe_counts.float()
+    weights[class_counts == 0] = 0  # set weight=0 for missing classes
+
+    weights /= weights.sum()  # normalize (optional)
+
+    for i, count in enumerate(class_counts):
+        print(f"Number of class {i}s: {count.item()}")
+    print(f"Computed weights: {weights}")
+
+    return weights
+
+
+"""Extracts useful metrics from sklearn classification_report output."""
+def parse_classification_report(report_dict):
+
+    results = {}
+
+    # Per-class metrics
+    results["per_class"] = {
+        label: {
+            "precision": metrics["precision"],
+            "recall": metrics["recall"],
+            "f1-score": metrics["f1-score"],
+            "support": metrics["support"],
+        }
+        for label, metrics in report_dict.items()
+        if label not in ("accuracy", "macro avg", "weighted avg", "micro avg")
+    }
+
+    # Aggregated metrics
+    results["macro avg"] = report_dict.get("macro avg", {})
+    results["weighted avg"] = report_dict.get("weighted avg", {})
+    if "micro avg" in report_dict:
+        results["micro avg"] = report_dict["micro avg"]
+
+    # Accuracy
+    if "accuracy" in report_dict:
+        results["accuracy"] = report_dict["accuracy"]
+
+    return results
+
 
 
 

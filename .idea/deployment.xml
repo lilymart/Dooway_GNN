@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="martirano@dgx.icar.cnr.it:22 password (13)" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="martirano@r15.icar.cnr.it:22 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="martirano@dgx.icar.cnr.it:22 password">
         <serverdata>
@@ -104,6 +104,13 @@
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="martirano@r15.icar.cnr.it:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/martirano/Projects/Dooway_GNN" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

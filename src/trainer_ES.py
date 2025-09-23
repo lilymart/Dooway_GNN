@@ -1,10 +1,14 @@
 import os
 import torch
+import pandas as pd
 import numpy as np
-from sklearn.metrics import f1_score, roc_auc_score, precision_score, recall_score
+from sklearn.metrics import classification_report #f1_score, roc_auc_score, precision_score, recall_score
+import torch.nn.functional as F
+
+from src.utils import parse_classification_report
 
 
-def train_node_classifier(model, data, optimizer, criterion, seed, target_type, embeddings_dir, n_epochs=200, patience=20, epsilon=1e-4):
+def train_node_classifier(model, data, optimizer, criterion, target_type, multilabel=True, n_epochs=200, patience=20, epsilon=1e-4):
 
     best_val_f1 = 0.0  # To keep track of the best validation F1 score
     best_model_state = None  # To store the best model's state
@@ -21,9 +25,13 @@ def train_node_classifier(model, data, optimizer, criterion, seed, target_type, 
         loss.backward()
         optimizer.step()
 
-        pred = out[target_type].argmax(dim=1)  ## Use the class with highest probability.
+        if multilabel:
+            report_dict = eval_node_classifier_multilabel(model, data, target_type, split="val")
+        else:
+            report_dict = eval_node_classifier_multiclass(model, data, target_type, split="val")
 
-        f1_micro, f1_macro, f1_weigh, auc, precision_0, recall_0, precision_1, recall_1 = eval_node_classifier(model, data, target_type, seed, embeddings_dir)
+        metrics = parse_classification_report(report_dict)
+        f1_macro = metrics["macro avg"]["f1-score"]
 
         #loss_values.append(loss.item())
 
@@ -49,23 +57,68 @@ def train_node_classifier(model, data, optimizer, criterion, seed, target_type, 
     return model
 
 
-def eval_node_classifier(model, data, target_type, seed, embeddings_dir):
+def eval_node_classifier_multiclass(model, data, target_type, split="val", report_path=None):
     model.eval()
     with torch.no_grad():
-        # pred = model(data.x_dict, data.edge_index_dict)['claim'].argmax(dim=-1)
-        out, embeddings = model(data.x_dict, data.edge_index_dict)
-        pred = out[target_type].argmax(dim=-1)
-        mask = data[target_type].val_mask
-        # correct = (pred[mask] == data['claim'].y[mask]).sum()
-        f1_micro = f1_score(data[target_type].y.cpu(), pred.cpu(), average='micro')
-        f1_macro = f1_score(data[target_type].y.cpu(), pred.cpu(), average='macro')
-        f1_weigh = f1_score(data[target_type].y.cpu(), pred.cpu(), average='weighted')
-        auc = roc_auc_score(data[target_type].y.cpu(), pred.cpu(), average='weighted')
-        prec = precision_score(data[target_type].y.cpu(), pred.cpu(), average=None) #If None, the metrics for each class are returned
-        rec = recall_score(data[target_type].y.cpu(), pred.cpu(), average=None)
+        out, _ = model(data.x_dict, data.edge_index_dict)
+        prob = F.softmax(out[target_type], dim=-1)
+        pred = prob.argmax(dim=-1)
 
-        # Save embeddings for validation set
-        val_embeddings = embeddings[target_type].cpu().numpy()
-        np.save(os.path.join(embeddings_dir, f'embeddings_seed_{seed}.npy'), val_embeddings)
+        if split == "train":
+            mask = data[target_type].train_mask
+        elif split == "val":
+            mask = data[target_type].val_mask
+        elif split == "test":
+            mask = data[target_type].test_mask
+        else:
+            raise ValueError(f"Unknown split {split}")
 
-        return f1_micro, f1_macro, f1_weigh, auc, prec, rec
+        y_true = data[target_type].y[mask].cpu().numpy()
+        y_pred = pred[mask].cpu().numpy()
+
+        report_dict = classification_report(
+            y_true, y_pred, zero_division=0, output_dict=True
+        )
+        report_df = pd.DataFrame(report_dict).transpose()
+
+        if report_path is not None:
+            os.makedirs(os.path.dirname(report_path), exist_ok=True)
+            report_df.to_excel(report_path, index=True)
+            print(f"Saved multiclass classification report to {report_path}")
+
+        return report_dict
+
+
+def eval_node_classifier_multilabel(
+    model, data, target_type, split="val", report_path=None
+):
+    model.eval()
+    with torch.no_grad():
+        out, _ = model(data.x_dict, data.edge_index_dict)
+        prob = torch.sigmoid(out[target_type])
+        pred = (prob > 0.5).long()
+
+        if split == "train":
+            mask = data[target_type].train_mask
+        elif split == "val":
+            mask = data[target_type].val_mask
+        elif split == "test":
+            mask = data[target_type].test_mask
+        else:
+            raise ValueError(f"Unknown split {split}")
+
+        y_true = data[target_type].y[mask].cpu().numpy()
+        y_pred = pred[mask].cpu().numpy()
+
+        report_dict = classification_report(
+            y_true, y_pred, zero_division=0, output_dict=True
+        )
+        report_df = pd.DataFrame(report_dict).transpose()
+
+        if report_path is not None:
+            os.makedirs(os.path.dirname(report_path), exist_ok=True)
+            report_df.to_excel(report_path, index=True)
+            print(f"Saved multilabel classification report to {report_path}")
+
+        return report_dict
+
