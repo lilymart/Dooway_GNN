@@ -2,10 +2,11 @@ import os
 import torch
 import pandas as pd
 import numpy as np
-from sklearn.metrics import classification_report #f1_score, roc_auc_score, precision_score, recall_score
+from sklearn.metrics import classification_report, \
+    hamming_loss, accuracy_score  # f1_score, roc_auc_score, precision_score, recall_score
 import torch.nn.functional as F
 
-from src.utils import parse_classification_report
+from src.utils import at_least_k_accuracy
 
 
 def train_node_classifier(model, data, optimizer, criterion, target_type, multilabel=True, n_epochs=200, patience=20, epsilon=1e-4):
@@ -30,13 +31,13 @@ def train_node_classifier(model, data, optimizer, criterion, target_type, multil
         else:
             report_dict = eval_node_classifier_multiclass(model, data, target_type, split="val")
 
-        metrics = parse_classification_report(report_dict)
-        f1_macro = metrics["macro avg"]["f1-score"]
+        f1_macro = report_dict["macro avg"]["f1-score"]
+        f1_weighted = report_dict["weighted avg"]["f1-score"]
 
         #loss_values.append(loss.item())
 
-        if f1_macro > best_val_f1 + epsilon:
-            best_val_f1 = f1_macro
+        if f1_weighted > best_val_f1 + epsilon:
+            best_val_f1 = f1_weighted
             best_model_state = model.state_dict()  # Save the best model state
             epochs_without_improvement = 0  # Reset the counter
         else:
@@ -48,7 +49,7 @@ def train_node_classifier(model, data, optimizer, criterion, target_type, multil
             break
 
         if epoch % 20 == 0:
-            print(f'Epoch: {epoch:03d}, Train Loss: {loss:.3f}, Val f1_micro: {f1_micro:.3f}, Val f1_macro: {f1_macro:.3f}')
+            print(f'Epoch: {epoch:03d}, Train Loss: {loss:.3f}, Val f1_macro: {f1_macro:.3f}, Val f1_weighted: {f1_weighted:.3f}')
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
@@ -113,6 +114,14 @@ def eval_node_classifier_multilabel(
         report_dict = classification_report(
             y_true, y_pred, zero_division=0, output_dict=True
         )
+
+        # Extend with multilabel-specific metrics
+        report_dict["hamming_loss"] = hamming_loss(y_true, y_pred)
+        report_dict["subset_accuracy"] = accuracy_score(y_true, y_pred)
+        report_dict["at_least_1_label"] = at_least_k_accuracy(y_true, y_pred, k=1)
+        report_dict["at_least_2_label"] = at_least_k_accuracy(y_true, y_pred, k=2)
+        report_dict["at_least_3_label"] = at_least_k_accuracy(y_true, y_pred, k=3)
+
         report_df = pd.DataFrame(report_dict).transpose()
 
         if report_path is not None:

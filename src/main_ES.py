@@ -3,16 +3,16 @@ import sys
 import torch
 import pandas as pd
 import numpy as np
+from sklearn.metrics import hamming_loss
 from torch_geometric.nn import to_hetero
 import torch.nn as nn
 import time
 
 from src.data_loading import load_heterodata
 from src.models.GAT import My_GAT
-from src.models.HeteroGAT_unsup import HeteroGAT
-from src.trainer_ES import train_node_classifier, eval_node_classifier, eval_node_classifier_multilabel, \
+from src.trainer_ES import train_node_classifier, eval_node_classifier_multilabel, \
     eval_node_classifier_multiclass
-from src.utils import compute_weights, get_device, set_random_seed, compute_weights_safe
+from src.utils import get_device, set_random_seed, compute_weights_safe, get_base_dir, save_classification_report
 
 #"$dataset_name" "$mode" "$seed_index" "$seed" "$embeddings_dir" "$models_dir" "$results_dir" "$losses_dir"
 if __name__ == "__main__":
@@ -21,17 +21,19 @@ if __name__ == "__main__":
     feats_dim = "256" #sys.argv[2]
     target_type = "user" #sys.argv[3]
     multilabel = True
-    num_layers = 2 #sys.argv[4]
+    num_layers = 3 #sys.argv[4]
     run = 0 #int(sys.argv[5])  # seed_index
     seed = 42 #int(sys.argv[6])
     embeddings_dir = None #sys.argv[7]
-    #models_dir = sys.argv[8]
-    results_dir = sys.argv[9]
+    results_dir = os.path.join(get_base_dir(), dataset_name, "subset", "results")#sys.argv[9]
 
     set_random_seed(seed)
 
     # LOAD THE DATASET
-    data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, seed=seed)
+    fixed_test_set = True
+    experts_test_set = True
+    max_k = 8
+    data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, max_k= max_k, fixed_test_set=fixed_test_set, experts_test_set=experts_test_set, seed=seed)
 
     if multilabel:
         num_classes = data[target_type].y.size(1)
@@ -39,7 +41,9 @@ if __name__ == "__main__":
         num_classes = int(data[target_type].y.max().item()) + 1
 
     # Model
-    model = My_GAT(hidden_channels=64, out_channels=num_classes, dropout=0.3, num_layers=num_layers)
+    hidden_channels = 32 #64
+    dropout = 0.3
+    model = My_GAT(hidden_channels=hidden_channels, out_channels=num_classes, dropout=dropout, num_layers=num_layers) #hidden_channels=64
     model = to_hetero(model, data.metadata(), aggr='sum')
 
     device = torch.device(get_device() if torch.cuda.is_available() else 'cpu')
@@ -56,28 +60,30 @@ if __name__ == "__main__":
 
     # Train
     start_time = time.time()
-    model = train_node_classifier(model, data, optimizer, criterion, target_type, multilabel, n_epochs=600, patience=100, epsilon=1e-6)
+    model = train_node_classifier(model, data, optimizer, criterion, target_type, multilabel, n_epochs=400, patience=100, epsilon=1e-6)
     end_time = time.time()
 
     training_time = end_time - start_time
     print(f'Training time: {training_time} seconds')
 
-    # Evaluation
-    #f1_micro, f1_macro, f1_weigh, auc, prec, rec = eval_node_classifier(model, data, target_type, num_layers, seed, embeddings_dir, split="test")
-
-    report_path = os.path.join(results_dir, f"{num_layers}layers_seed{seed}_classification_report.xlsx")
 
     if multilabel:
-        f1_micro, f1_macro, f1_weigh, auc, prec, rec = eval_node_classifier_multilabel(
-            model, data, target_type, split="test", report_path=report_path
-        )
+        report_dict = eval_node_classifier_multilabel(model, data, target_type, split="test")
     else:
-        f1_micro, f1_macro, f1_weigh, auc, prec, rec = eval_node_classifier_multiclass(
-            model, data, target_type, split="test", report_path=report_path
-        )
+        report_dict = eval_node_classifier_multiclass(model, data, target_type, split="test")
 
-    print(f'f1-micro: {f1_micro:.3f}, f1-macro: {f1_macro:.3f}, roc-auc: {auc:.3f}')
-    print(f'precision {prec}, recall: {rec}')
+    f1_macro = report_dict["macro avg"]["f1-score"]
+    f1_weighted = report_dict["weighted avg"]["f1-score"]
+
+    hamming = report_dict.get("hamming_loss", None)
+    subset_acc = report_dict.get("subset_accuracy", None)
+
+    print(f'f1-weigh: {f1_weighted:.3f}, f1-macro: {f1_macro:.3f}')
+    print("ALL METRICS")
+
+    params_str = f"Num layers:{num_layers}, Hidden channels:{hidden_channels}, Dropout:{dropout}, max k:{max_k}, fixed test set:{fixed_test_set}, experts test set:{experts_test_set}, Seed:{seed}."
+    report_str = save_classification_report(report_dict, params_str, os.path.join(results_dir, "experiments_results.txt"))
+    print(report_str)
 
     # Save target embeddings
     model.eval()
@@ -104,25 +110,6 @@ if __name__ == "__main__":
         df.to_csv(csv_path, index=False)
         print(f"Saved embeddings (CSV) to {csv_path}")
 
-    """
-    # SAVE THE MODEL
-    model_path = os.path.join(models_dir, f"{num_layers}layers_seed{seed}_model.pth")
-    torch.save(model.state_dict(), model_path)
 
-    # SAVE THE RESULTS
-    df = pd.DataFrame([{
-        'Seed': seed,
-        'F1_micro': f1_micro,
-        'F1_macro': f1_macro,
-        'ROC-AUC': auc,
-        'Prec': prec,
-        'Rec': rec,
-        'Time': training_time
-    }])
-    results_path = os.path.join(results_dir, f'{num_layers}layers_seed{seed}_results.xlsx')
-    print(df)
-    df.to_excel(results_path, index=False)
-    print(f"Saved at {os.path.abspath(results_path)}")
-    """
 
 

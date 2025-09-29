@@ -4,10 +4,10 @@ from torch_geometric.data import HeteroData
 from torch_geometric.transforms import AddMetaPaths
 import torch_geometric.transforms as T
 
-from src.utils import get_base_dir
+from src.utils import get_base_dir, update_labels_from_df
 
 
-def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, multilabel=True, seed=42): #TODO: seed
+def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, multilabel=True, max_k=8, fixed_test_set=False, experts_test_set=False, seed=42):
 
     base_dir = os.path.join(get_base_dir(), dataset_name)
     if subset:
@@ -35,9 +35,16 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
         data[ntype].x = X
 
     if multilabel:
-        data[target_type].y = torch.load(os.path.join(base_dir, f"{target_type}_labels_multi.pt"))  # ]num_samples x num_classes]
+        y = torch.load(os.path.join(base_dir, f"{target_type}s_avg_multilabel_k{max_k}.pt"))  # [num_samples x num_classes]
     else:
-        data[target_type].y = torch.load(os.path.join(base_dir, f"{target_type}_labels.pt"))  # [num_samples]
+        y = torch.load(os.path.join(base_dir, f"{target_type}_labels.pt"))  # [num_samples]
+
+    df_path = os.path.join(base_dir, "output_esperti.parquet")
+    y_overwritten, test_ids = update_labels_from_df(y, df_path)
+    if experts_test_set:
+        data[target_type].y = y_overwritten
+    else:
+        data[target_type].y = y
 
     # Load edgelists
 
@@ -59,9 +66,38 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
                   ('review', 'is_written_by', 'user')]]  # URSRU
     data = AddMetaPaths(metapaths, weighted=True)(data)
 
-    # train-val-test set
-    transform = T.RandomNodeSplit(num_val=0.10, num_test=0.15)
-    data = transform(data)
+    val_ratio = 0.10
+
+    if fixed_test_set:
+
+        num_nodes = data[target_type].num_nodes
+        train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        val_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        test_mask = torch.zeros(num_nodes, dtype=torch.bool)
+
+        rng = torch.Generator().manual_seed(seed)
+
+        test_mask[test_ids] = True
+        remaining = torch.where(~test_mask)[0]
+
+        # split remaining into train + val
+        num_val = int(val_ratio * len(remaining))
+        perm = torch.randperm(len(remaining), generator=rng)
+
+        val_nodes = remaining[perm[:num_val]]
+        train_nodes = remaining[perm[num_val:]]
+
+        val_mask[val_nodes] = True
+        train_mask[train_nodes] = True
+
+        data[target_type].train_mask = train_mask
+        data[target_type].val_mask = val_mask
+        data[target_type].test_mask = test_mask
+
+    else:
+
+        transform = T.RandomNodeSplit(num_val=val_ratio, num_test=0.15)
+        data = transform(data)
 
     return data
 
@@ -69,5 +105,5 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
 if __name__ == "__main__":
     region = "Basilicata"
     dim = 256
-    data = load_heterodata(dataset_name=region, subset=True, feats_dim=dim)
+    data = load_heterodata(dataset_name=region, subset=True, feats_dim=dim, overwrite=True)
     print(data)

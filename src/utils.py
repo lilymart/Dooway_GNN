@@ -86,38 +86,104 @@ def compute_weights_safe(targets, num_classes=None):
 
     return weights
 
+"""
+Update the label tensor `y` with ground truth from a CSV file. replace rows at IDs with CSV labels.
 
-"""Extracts useful metrics from sklearn classification_report output."""
-def parse_classification_report(report_dict):
+Args:
+    y (torch.Tensor): Original labels tensor [num_nodes, num_classes].
+    df: DataFrame with IDs + one-hot labels.
+    
+Returns:
+    updated_y (torch.Tensor): New label tensor.
+    ids (np.ndarray): Array of IDs from the CSV.
+"""
+def update_labels_from_df(y, df_path):
 
-    results = {}
+    df = pd.read_parquet(df_path)
+    # first column = ids, rest = one-hot labels
+    ids = df.iloc[:, 0].values
+    y_new = torch.tensor(df.iloc[:, 1:].values, dtype=y.dtype)
+    updated_y = y.clone()
+    updated_y[ids] = y_new
+    return updated_y, ids
+
+
+"""
+Compute accuracy for multi-label classification:
+the proportion of samples where at least k labels are correctly predicted.
+Args:
+    y_true (ndarray): binary matrix of shape (n_samples, n_classes)
+    y_pred (ndarray): binary matrix of shape (n_samples, n_classes)
+    k (int): number of correct labels required
+
+Returns: float: accuracy score
+"""
+def at_least_k_accuracy(y_true, y_pred, k=1):
+
+    # Count number of correctly predicted labels per sample
+    correct_per_sample = np.sum((y_true == 1) & (y_pred == 1), axis=1)
+
+    # Check if at least k are correct
+    success = correct_per_sample >= k
+    return np.mean(success)
+
+
+
+"""
+Format a classification report dictionary into a readable string.
+Args:
+    report_dict (dict): classification report dictionary
+    params_str (str): description of parameters used in the experiment
+
+Returns:
+    str: formatted report
+"""
+def format_classification_report(report_dict, params_str):
+
+    lines = []
+    lines.append(f"Parameters: {params_str}\n")
 
     # Per-class metrics
-    results["per_class"] = {
-        label: {
-            "precision": metrics["precision"],
-            "recall": metrics["recall"],
-            "f1-score": metrics["f1-score"],
-            "support": metrics["support"],
-        }
-        for label, metrics in report_dict.items()
-        if label not in ("accuracy", "macro avg", "weighted avg", "micro avg")
-    }
+    for key, metrics in report_dict.items():
+        if key.isdigit():  # only class IDs
+            lines.append(f"Class {key}:")
+            lines.append(f"  Precision: {metrics['precision']:.4f}")
+            lines.append(f"  Recall:    {metrics['recall']:.4f}")
+            lines.append(f"  F1-score:  {metrics['f1-score']:.4f}")
+            lines.append(f"  Support:   {int(metrics['support'])}\n")
 
-    # Aggregated metrics
-    results["macro avg"] = report_dict.get("macro avg", {})
-    results["weighted avg"] = report_dict.get("weighted avg", {})
-    if "micro avg" in report_dict:
-        results["micro avg"] = report_dict["micro avg"]
+    # Averages
+    lines.append("--- Averages ---")
+    for avg_key in ["micro avg", "macro avg", "weighted avg", "samples avg"]:
+        if avg_key in report_dict:
+            metrics = report_dict[avg_key]
+            lines.append(f"{avg_key.title()}:")
+            lines.append(f"  Precision: {metrics['precision']:.4f}")
+            lines.append(f"  Recall:    {metrics['recall']:.4f}")
+            lines.append(f"  F1-score:  {metrics['f1-score']:.4f}")
+            lines.append(f"  Support:   {int(metrics['support'])}\n")
 
-    # Accuracy
-    if "accuracy" in report_dict:
-        results["accuracy"] = report_dict["accuracy"]
+    # Other metrics
+    lines.append("--- Other metrics ---")
+    for metric in ["hamming_loss", "subset_accuracy"]:
+        if metric in report_dict:
+            lines.append(f"{metric.replace('_',' ').title()}: {report_dict[metric]:.4f}")
 
-    return results
+    for k in range(1,4):
+        key = f"at_least_{k}_label"
+        if key in report_dict:
+            lines.append(f"At least {k} label(s) correct: {report_dict[key]:.4f}")
+
+    lines.append("\n" + "="*60 + "\n")
+    return "\n".join(lines)
 
 
+"""
+Save a classification report to a txt file (appends at the end).
+"""
+def save_classification_report(report_dict, params_str, file_path="results.txt"):
 
-
-
-
+    report_str = format_classification_report(report_dict, params_str)
+    with open(file_path, "a", encoding="utf-8") as f:
+        f.write(report_str + "\n")
+    return report_str  # return so you can also print it
