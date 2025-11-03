@@ -1,4 +1,5 @@
 import os
+import argparse
 import sys
 import torch
 import pandas as pd
@@ -12,26 +13,66 @@ from src.data_loading import load_heterodata
 from src.models.GAT import My_GAT
 from src.trainer_ES import train_node_classifier, eval_node_classifier_multilabel, \
     eval_node_classifier_multiclass
-from src.utils import get_device, set_random_seed, compute_weights_safe, get_base_dir, save_classification_report
+from src.utils import get_device, set_random_seed, compute_weights_safe, get_base_dir, save_classification_report, \
+    compute_pos_weights_multilabel
 
-#"$dataset_name" "$mode" "$seed_index" "$seed" "$embeddings_dir" "$models_dir" "$results_dir" "$losses_dir"
 if __name__ == "__main__":
 
-    dataset_name = "Basilicata" #sys.argv[1]
-    feats_dim = "256" #sys.argv[2]
-    target_type = "user" #sys.argv[3]
-    multilabel = True
-    num_layers = 3 #sys.argv[4]
-    run = 0 #int(sys.argv[5])  # seed_index
-    seed = 42 #int(sys.argv[6])
-    embeddings_dir = None #sys.argv[7]
-    results_dir = os.path.join(get_base_dir(), dataset_name, "subset", "results")#sys.argv[9]
+    """
+    dataset_name = sys.argv[1] #"Basilicata"
+    feats_dim = sys.argv[2] #"256"
+    target_type = sys.argv[3] #"user"
+    multilabel = sys.argv[4].lower() == "true" #True
+    seed = int(sys.argv[5]) #42
+    num_layers = int(sys.argv[6]) #3
+    hidden_channels = int(sys.argv[7]) #32  # 64
+    dropout = float(sys.argv[8]) #0.3
+    embeddings_dir = None #sys.argv[8]
+    results_dir = sys.argv[9] #os.path.join(get_base_dir(), dataset_name, "subset", "results")
+    """
+
+    parser = argparse.ArgumentParser(description="Run GAT experiment")
+
+    parser.add_argument("--dataset_name", type=str, default="Basilicata",
+                        help="Name of the dataset (e.g. Basilicata)")
+    parser.add_argument("--feats_dim", type=int, default=256,
+                        help="Size of node features")
+    parser.add_argument("--target_type", type=str, default="user",
+                        help="Target type (e.g. user)")
+    parser.add_argument("--multilabel", type=lambda x: x.lower() == "true", default=True,
+                        help="Whether task is multilabel (true/false)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for training")
+    parser.add_argument("--num_layers", type=int, default=3,
+                        help="Number of GAT layers")
+    parser.add_argument("--hidden_channels", type=int, default=128,
+                        help="Size oh hidden channels")
+    parser.add_argument("--dropout", type=float, default=0.3,
+                        help="Dropout probability")
+    parser.add_argument("--learning_rate", type=float, default=0.005,
+                        help="Learning rate")
+    parser.add_argument("--results_dir", type=str, default=os.path.join(os.getcwd(), "results"),
+                        help="Path (directory) to store results")
+
+    args = parser.parse_args()
+
+    dataset_name = args.dataset_name
+    feats_dim = args.feats_dim
+    target_type = args.target_type
+    multilabel = args.multilabel
+    seed = args.seed
+    num_layers = args.num_layers
+    hidden_channels = args.hidden_channels
+    dropout = args.dropout
+    learning_rate = args.learning_rate
+    results_dir = args.results_dir
+    embeddings_dir = None
 
     set_random_seed(seed)
 
     # LOAD THE DATASET
-    fixed_test_set = True
-    experts_test_set = True
+    fixed_test_set = False
+    experts_test_set = False
     max_k = 8
     data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, max_k= max_k, fixed_test_set=fixed_test_set, experts_test_set=experts_test_set, seed=seed)
 
@@ -41,26 +82,26 @@ if __name__ == "__main__":
         num_classes = int(data[target_type].y.max().item()) + 1
 
     # Model
-    hidden_channels = 32 #64
-    dropout = 0.3
     model = My_GAT(hidden_channels=hidden_channels, out_channels=num_classes, dropout=dropout, num_layers=num_layers) #hidden_channels=64
     model = to_hetero(model, data.metadata(), aggr='sum')
 
     device = torch.device(get_device() if torch.cuda.is_available() else 'cpu')
     data, model = data.to(device), model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-3)  # lr=0.005
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=5e-3)  # lr=0.005
+
+    targets = data[target_type].y
 
     if multilabel:
-        criterion = nn.BCEWithLogitsLoss()
+        pos_weight = compute_pos_weights_multilabel(targets).float().to(device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight)
     else:
-        targets = data[target_type].y
         weights = compute_weights_safe(targets, num_classes).float().to(device)
         criterion = nn.CrossEntropyLoss(weights)
 
     # Train
     start_time = time.time()
-    model = train_node_classifier(model, data, optimizer, criterion, target_type, multilabel, n_epochs=400, patience=100, epsilon=1e-6)
+    model = train_node_classifier(model, data, optimizer, criterion, target_type, multilabel, n_epochs=500, patience=100, epsilon=1e-6)
     end_time = time.time()
 
     training_time = end_time - start_time

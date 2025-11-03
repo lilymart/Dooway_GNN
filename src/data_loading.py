@@ -1,5 +1,6 @@
 import os
 import torch
+import pandas as pd
 from torch_geometric.data import HeteroData
 from torch_geometric.transforms import AddMetaPaths
 import torch_geometric.transforms as T
@@ -12,9 +13,9 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
     base_dir = os.path.join(get_base_dir(), dataset_name)
     if subset:
         base_dir = os.path.join(base_dir, "subset")
-    base_dir = os.path.join(base_dir, "heterodata")
-    nodes_dir = os.path.join(base_dir, "features", "tensors")
-    edges_dir = os.path.join(base_dir, "edgelists", "tensors")
+    heterodata_dir = os.path.join(base_dir, "heterodata")
+    nodes_dir = os.path.join(heterodata_dir, "features", "tensors")
+    edges_dir = os.path.join(heterodata_dir, "edgelists", "tensors")
 
     node_types = ["category", "image", "poi", "review", "service", "user"]
     target_type = "user"
@@ -35,11 +36,11 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
         data[ntype].x = X
 
     if multilabel:
-        y = torch.load(os.path.join(base_dir, f"{target_type}s_avg_multilabel_k{max_k}.pt"))  # [num_samples x num_classes]
+        y = torch.load(os.path.join(heterodata_dir, f"{target_type}s_avg_multilabel_k{max_k}.pt"))  # [num_samples x num_classes]
     else:
-        y = torch.load(os.path.join(base_dir, f"{target_type}_labels.pt"))  # [num_samples]
+        y = torch.load(os.path.join(heterodata_dir, f"{target_type}_labels.pt"))  # [num_samples]
 
-    df_path = os.path.join(base_dir, "output_esperti.parquet")
+    df_path = os.path.join(heterodata_dir, "output_esperti.parquet")
     y_overwritten, test_ids = update_labels_from_df(y, df_path)
     if experts_test_set:
         data[target_type].y = y_overwritten
@@ -66,7 +67,7 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
                   ('review', 'is_written_by', 'user')]]  # URSRU
     data = AddMetaPaths(metapaths, weighted=True)(data)
 
-    val_ratio = 0.10
+    val_ratio = 0.15
 
     if fixed_test_set:
 
@@ -96,8 +97,13 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
 
     else:
 
-        transform = T.RandomNodeSplit(num_val=val_ratio, num_test=0.15)
-        data = transform(data)
+        #transform = T.RandomNodeSplit(num_val=val_ratio, num_test=0.15)
+        #data = transform(data)
+        df = pd.read_parquet(os.path.join(base_dir, f"split_flags_{seed}.parquet"))
+        data[target_type].train_mask = torch.tensor(df["train"].to_numpy(), dtype=torch.bool)
+        data[target_type].val_mask = torch.tensor(df["validation"].to_numpy(), dtype=torch.bool)
+        data[target_type].test_mask = torch.tensor(df["test"].to_numpy(), dtype=torch.bool)
+
 
     return data
 
@@ -105,5 +111,5 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
 if __name__ == "__main__":
     region = "Basilicata"
     dim = 256
-    data = load_heterodata(dataset_name=region, subset=True, feats_dim=dim, overwrite=True)
+    data = load_heterodata(dataset_name=region, subset=True, feats_dim=dim, seed=42)
     print(data)

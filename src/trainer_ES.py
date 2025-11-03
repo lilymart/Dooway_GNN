@@ -2,8 +2,7 @@ import os
 import torch
 import pandas as pd
 import numpy as np
-from sklearn.metrics import classification_report, \
-    hamming_loss, accuracy_score  # f1_score, roc_auc_score, precision_score, recall_score
+from sklearn.metrics import classification_report, hamming_loss, accuracy_score
 import torch.nn.functional as F
 
 from src.utils import at_least_k_accuracy
@@ -119,8 +118,8 @@ def eval_node_classifier_multilabel(
         report_dict["hamming_loss"] = hamming_loss(y_true, y_pred)
         report_dict["subset_accuracy"] = accuracy_score(y_true, y_pred)
         report_dict["at_least_1_label"] = at_least_k_accuracy(y_true, y_pred, k=1)
-        report_dict["at_least_2_label"] = at_least_k_accuracy(y_true, y_pred, k=2)
         report_dict["at_least_3_label"] = at_least_k_accuracy(y_true, y_pred, k=3)
+        report_dict["at_least_5_label"] = at_least_k_accuracy(y_true, y_pred, k=5)
 
         report_df = pd.DataFrame(report_dict).transpose()
 

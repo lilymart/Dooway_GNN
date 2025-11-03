@@ -2,28 +2,24 @@
 
 export PYTHONPATH=$PYTHONPATH:/Projects/Dooway_GNN/
 
-dataset_name="dooway" #1
-region="Basilicata"
+dataset_name="Basilicata" #1
 feats_dim="256"
+target_type="user" #sys.argv[3]
+multilabel="true"
+num_layers=3 #2 #sys.argv[5]
+hidden_channels=32 #64
+dropout=0.3
+learning_rate=0.005
 
-training_seeds=(42 123 12345 123123 2025)
+training_seeds=(42 96 25 2025 123)
 
-base_dir="/home/martirano/$dataset_name/$region"
-embeddings_dir="$base_dir/embeddings"
-models_dir="$base_dir/best_models"
-results_dir="$base_dir/results"
-
-for dir in "$embeddings_dir" "$models_dir" "$results_dir"; do
-    if [ ! -d "$dir" ]; then
-        echo "Creating directory: $dir"
-        mkdir -p "$dir"
-    fi
-done
+results_dir="/home/martirano/data/dooway/$dataset_name/subset/results"
 
 
-for seed_index in "${!training_seeds[@]}"  # Iterate over seed indices
+for seed in "${training_seeds[@]}"
 do
-    seed="${training_seeds[$seed_index]}"  # Get actual seed value
-    echo "### Running experiment with dataset: $dataset_name, seed: $seed ###"
-    python src/main_ES.py "$dataset_name" "$feats_dim" "$target_type" "$num_layers" "$seed_index" "$seed" "$embeddings_dir" "$models_dir", "$results_dir"
-done
+    echo "### Running experiment with seed: $seed ###"
+     python src/main_ES.py \
+        --dataset_name "$dataset_name" --seed "$seed" --num_layers "$num_layers" --hidden_channels "$hidden_channels" --learning_rate "$learning_rate" --results_dir "$results_dir"
+    done
+

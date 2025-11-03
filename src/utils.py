@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import torch
 import pandas as pd
 import numpy as np
@@ -86,6 +88,42 @@ def compute_weights_safe(targets, num_classes=None):
 
     return weights
 
+
+"""
+Compute per-class positive weights for multilabel classification.
+
+Parameters: targets : torch.Tensor. Binary label matrix of shape (num_samples, num_classes), where targets[i, c] ∈ {0,1}.
+Returns: torch.Tensor. pos_weight vector of shape (num_classes,), suitable for nn.BCEWithLogitsLoss(pos_weight=...).
+"""
+def compute_pos_weights_multilabel(targets: torch.Tensor) -> torch.Tensor:
+
+    # Count positives and negatives per class
+    pos_counts = targets.sum(dim=0)
+    neg_counts = targets.size(0) - pos_counts
+
+    # Avoid division by zero (if a class has no positives)
+    safe_pos_counts = pos_counts.clone()
+    safe_pos_counts[safe_pos_counts == 0] = 1
+
+    # Compute pos_weight = neg / pos
+    pos_weight = neg_counts / safe_pos_counts
+
+    # Optional: clip to avoid exploding gradients for extremely rare labels
+    pos_weight = torch.clamp(pos_weight, max=50.0)
+
+    # Normalization
+    pos_weight = pos_weight / pos_weight.mean()
+
+    # Log some info
+    for i, (p, n, w) in enumerate(zip(pos_counts, neg_counts, pos_weight)):
+        print(f"Class {i}: pos={int(p)}, neg={int(n)}, pos_weight={float(w):.3f}")
+
+    return pos_weight
+
+
+
+
+
 """
 Update the label tensor `y` with ground truth from a CSV file. replace rows at IDs with CSV labels.
 
@@ -128,7 +166,6 @@ def at_least_k_accuracy(y_true, y_pred, k=1):
     return np.mean(success)
 
 
-
 """
 Format a classification report dictionary into a readable string.
 Args:
@@ -169,7 +206,7 @@ def format_classification_report(report_dict, params_str):
         if metric in report_dict:
             lines.append(f"{metric.replace('_',' ').title()}: {report_dict[metric]:.4f}")
 
-    for k in range(1,4):
+    for k in range(1,6):
         key = f"at_least_{k}_label"
         if key in report_dict:
             lines.append(f"At least {k} label(s) correct: {report_dict[key]:.4f}")
@@ -187,3 +224,211 @@ def save_classification_report(report_dict, params_str, file_path="results.txt")
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(report_str + "\n")
     return report_str  # return so you can also print it
+
+
+"""
+Reads a results txt file containing multiple seed blocks,
+extracts relevant metrics, computes mean ± std across seeds,
+and returns a LaTeX table row string.
+"""
+def results_to_latex_row(filepath: str, label: str = "Nostra soluzione", filter_keywords: list[str] = None) -> str:
+
+    with open(filepath, "r") as f:
+        text = f.read()
+
+    # Split into separate experiment blocks
+    blocks = [b for b in text.strip().split("============================================================") if b.strip()]
+
+    # Filter blocks if requested
+    if filter_keywords:
+        filtered_blocks = []
+        for block in blocks:
+            param_line = next((line for line in block.splitlines() if line.startswith("Parameters:")), "")
+            if any(keyword in param_line for keyword in filter_keywords):
+                filtered_blocks.append(block)
+        blocks = filtered_blocks
+
+    if not blocks:
+        raise ValueError("No matching blocks found for the given filter keywords.")
+
+    # Regex patterns for each metric
+    patterns = {
+        "at_least_1": r"At least 1 label\(s\) correct:\s*([\d\.]+)",
+        "at_least_3": r"At least 3 label\(s\) correct:\s*([\d\.]+)",
+        "at_least_5": r"At least 5 label\(s\) correct:\s*([\d\.]+)",
+        "subset_acc": r"Subset Accuracy:\s*([\d\.]+)",
+        "hamming_loss": r"Hamming Loss:\s*([\d\.]+)",
+        "weighted_prec": r"Weighted Avg:\s*[\s\S]*?Precision:\s*([\d\.]+)",
+        "weighted_rec": r"Weighted Avg:\s*[\s\S]*?Recall:\s*([\d\.]+)",
+        "weighted_f1": r"Weighted Avg:\s*[\s\S]*?F1-score:\s*([\d\.]+)",
+    }
+
+    # Collect values
+    results = {key: [] for key in patterns}
+
+    for block in blocks:
+        for key, pattern in patterns.items():
+            match = re.search(pattern, block)
+            if match:
+                results[key].append(float(match.group(1)))
+
+    # Compute means and stds
+    means = {k: np.mean(v) if v else float("nan") for k, v in results.items()}
+    stds = {k: np.std(v) if v else float("nan") for k, v in results.items()}
+
+    # Order for the LaTeX row
+    order = [
+        "at_least_1",
+        "at_least_3",
+        "at_least_5",
+        "subset_acc",
+        "hamming_loss",
+        "weighted_prec",
+        "weighted_rec",
+        "weighted_f1",
+    ]
+
+    # Format the LaTeX line
+    values = [f"{means[k]:.3f} $\\pm$ {stds[k]:.3f}" for k in order]
+    latex_row = f"\\textbf{{{label}}} & " + " & ".join(values) + " \\\\"
+
+    return latex_row
+
+def class_results_to_latex_table(
+    filepath: str,
+    label_prefix: str = "Noi",
+    filter_keywords: list[str] = None
+) -> str:
+    """
+    Reads a results txt file with multiple experiment blocks (different seeds),
+    extracts per-class metrics, groups by (Hidden channels, Learning rate, Dropout),
+    computes mean ± std across seeds, and returns a LaTeX table string.
+
+    Columns:
+      Model | Class | Precision | Recall | F1-score | Support (min) | Support (max)
+
+    - Model is multi-row per configuration.
+    - Support uses min and max across seeds, not mean/std.
+    """
+
+    with open(filepath, "r") as f:
+        text = f.read()
+
+    # Split blocks by separator
+    blocks = [b for b in text.strip().split("============================================================") if b.strip()]
+
+    # Optional filtering by parameters
+    if filter_keywords:
+        filtered_blocks = []
+        for block in blocks:
+            param_line = next((line for line in block.splitlines() if line.startswith("Parameters:")), "")
+            if any(keyword in param_line for keyword in filter_keywords):
+                filtered_blocks.append(block)
+        blocks = filtered_blocks
+
+    if not blocks:
+        raise ValueError("No matching blocks found for the given filter keywords.")
+
+    # Regex patterns
+    param_pattern = re.compile(
+        r"Hidden channels:(\d+).*?Learning rate:([\d\.]+).*?Dropout:([\d\.]+)"
+    )
+    class_pattern = re.compile(
+        r"Class (\d+):\s*"
+        r"Precision:\s*([\d\.]+)\s*"
+        r"Recall:\s*([\d\.]+)\s*"
+        r"F1-score:\s*([\d\.]+)\s*"
+        r"Support:\s*(\d+)",
+        re.MULTILINE
+    )
+
+    # Group results: model -> class -> metric -> list
+    grouped_results = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+    for block in blocks:
+        # Extract hyperparameters
+        param_match = param_pattern.search(block)
+        if not param_match:
+            continue
+        hidden, lr, dropout = param_match.groups()
+        lr_short = lr.replace(".", "")[1:]  # e.g. 0.0005 -> 0005
+        model_tag = f"{label_prefix} {hidden} {lr_short} {dropout}"
+
+        # Extract class metrics
+        for match in class_pattern.finditer(block):
+            cls = int(match.group(1))
+            prec, rec, f1, sup = map(float, match.groups()[1:])
+            grouped_results[model_tag][cls]["precision"].append(prec)
+            grouped_results[model_tag][cls]["recall"].append(rec)
+            grouped_results[model_tag][cls]["f1"].append(f1)
+            grouped_results[model_tag][cls]["support"].append(sup)
+
+    # Build table rows
+    rows = []
+    for model_tag, class_data in grouped_results.items():
+        for cls, metrics in sorted(class_data.items()):
+            def mean_std(values):
+                return f"{np.mean(values):.3f} $\\pm$ {np.std(values):.3f}" if values else "—"
+
+            if metrics["support"]:
+                support_min = int(np.min(metrics["support"]))
+                support_max = int(np.max(metrics["support"]))
+            else:
+                support_min = support_max = "—"
+
+            rows.append([
+                model_tag,
+                cls,
+                mean_std(metrics["precision"]),
+                mean_std(metrics["recall"]),
+                mean_std(metrics["f1"]),
+                support_min,
+                support_max
+            ])
+
+    # Create DataFrame
+    df = pd.DataFrame(
+        rows,
+        columns=["Model", "Class", "Precision", "Recall", "F1-score", "Min Supp", "Max Supp"]
+    )
+    df = df.sort_values(by=["Model", "Class"]).reset_index(drop=True)
+
+    # === Generate LaTeX manually (for multirow) ===
+    latex_lines = []
+    latex_lines.append("\\begin{table}[ht]")
+    latex_lines.append("\\centering")
+    latex_lines.append("\\caption{Per-class results grouped by model configuration}")
+    latex_lines.append("\\label{tab:per_class_results}")
+    latex_lines.append("\\begin{tabular}{lcccccc}")
+    latex_lines.append("\\toprule")
+    latex_lines.append("Model & Class & Precision & Recall & F1-score & Min Supp & Max Supp\\\\")
+    latex_lines.append("\\midrule")
+
+    for model_tag, group_df in df.groupby("Model"):
+        n_rows = len(group_df)
+        first_row = True
+        for _, row in group_df.iterrows():
+            if first_row:
+                model_cell = f"\\multirow{{{n_rows}}}{{*}}{{{model_tag}}}"
+                first_row = False
+            else:
+                model_cell = ""
+            latex_lines.append(
+                f"{model_cell} & {int(row['Class'])} & {row['Precision']} & {row['Recall']} & "
+                f"{row['F1-score']} & {row['Min Supp']} & {row['Max Supp']} \\\\"
+            )
+        latex_lines.append("\\midrule")
+
+    latex_lines.append("\\bottomrule")
+    latex_lines.append("\\end{tabular}")
+    latex_lines.append("\\end{table}")
+
+    return "\n".join(latex_lines)
+
+
+
+if __name__ == "__main__":
+    filepath = os.path.join(get_base_dir(), "Basilicata", "subset", "results", "experiments_results.txt")
+    #res = results_to_latex_row(filepath, filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.005, Dropout:0.3"])
+    res = class_results_to_latex_table(filepath, label_prefix="Noi", filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.001, Dropout:0.3"])
+    print(res)
