@@ -11,6 +11,7 @@ import time
 
 from src.data_loading import load_heterodata
 from src.models.GAT import My_GAT
+from src.plots import plot_labels_distribution
 from src.trainer_ES import train_node_classifier, eval_node_classifier_multilabel, \
     eval_node_classifier_multiclass
 from src.utils import get_device, set_random_seed, compute_weights_safe, get_base_dir, save_classification_report, \
@@ -18,54 +19,16 @@ from src.utils import get_device, set_random_seed, compute_weights_safe, get_bas
 
 if __name__ == "__main__":
 
-    """
-    dataset_name = sys.argv[1] #"Basilicata"
-    feats_dim = sys.argv[2] #"256"
-    target_type = sys.argv[3] #"user"
-    multilabel = sys.argv[4].lower() == "true" #True
-    seed = int(sys.argv[5]) #42
-    num_layers = int(sys.argv[6]) #3
-    hidden_channels = int(sys.argv[7]) #32  # 64
-    dropout = float(sys.argv[8]) #0.3
-    embeddings_dir = None #sys.argv[8]
-    results_dir = sys.argv[9] #os.path.join(get_base_dir(), dataset_name, "subset", "results")
-    """
-
-    parser = argparse.ArgumentParser(description="Run GAT experiment")
-
-    parser.add_argument("--dataset_name", type=str, default="Basilicata",
-                        help="Name of the dataset (e.g. Basilicata)")
-    parser.add_argument("--feats_dim", type=int, default=256,
-                        help="Size of node features")
-    parser.add_argument("--target_type", type=str, default="user",
-                        help="Target type (e.g. user)")
-    parser.add_argument("--multilabel", type=lambda x: x.lower() == "true", default=True,
-                        help="Whether task is multilabel (true/false)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for training")
-    parser.add_argument("--num_layers", type=int, default=3,
-                        help="Number of GAT layers")
-    parser.add_argument("--hidden_channels", type=int, default=128,
-                        help="Size oh hidden channels")
-    parser.add_argument("--dropout", type=float, default=0.3,
-                        help="Dropout probability")
-    parser.add_argument("--learning_rate", type=float, default=0.005,
-                        help="Learning rate")
-    parser.add_argument("--results_dir", type=str, default=os.path.join(os.getcwd(), "results"),
-                        help="Path (directory) to store results")
-
-    args = parser.parse_args()
-
-    dataset_name = args.dataset_name
-    feats_dim = args.feats_dim
-    target_type = args.target_type
-    multilabel = args.multilabel
-    seed = args.seed
-    num_layers = args.num_layers
-    hidden_channels = args.hidden_channels
-    dropout = args.dropout
-    learning_rate = args.learning_rate
-    results_dir = args.results_dir
+    dataset_name = "Basilicata"
+    feats_dim = 256
+    target_type = "user"
+    multilabel = True
+    seed = 42
+    num_layers = 3
+    hidden_channels = 64
+    dropout = 0.3
+    learning_rate = 0.001
+    results_dir = os.path.join(get_base_dir(), dataset_name, "subset", "results")
     embeddings_dir = None
 
     set_random_seed(seed)
@@ -76,10 +39,15 @@ if __name__ == "__main__":
     max_k = 8
     data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, max_k= max_k, fixed_test_set=fixed_test_set, experts_test_set=experts_test_set, seed=seed)
 
+    plot_labels_distribution(data, results_dir)
+
+
     if multilabel:
         num_classes = data[target_type].y.size(1)
     else:
         num_classes = int(data[target_type].y.max().item()) + 1
+
+
 
     # Model
     model = My_GAT(hidden_channels=hidden_channels, out_channels=num_classes, dropout=dropout, num_layers=num_layers) #hidden_channels=64

@@ -7,6 +7,17 @@ import torch_geometric.transforms as T
 
 from src.utils import get_base_dir, update_labels_from_df
 
+"""
+Returns True if both source and destination node types (first and last tokens) are in node_types.
+"""
+def keep_edge(edge_type, node_types):
+
+    parts = edge_type.split("_")
+    if len(parts) < 2:
+        return False  # malformed name
+    src, dst = parts[0], parts[-1]
+    return src in node_types and dst in node_types
+
 
 def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, multilabel=True, max_k=8, fixed_test_set=False, experts_test_set=False, seed=42):
 
@@ -17,10 +28,11 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
     nodes_dir = os.path.join(heterodata_dir, "features", "tensors")
     edges_dir = os.path.join(heterodata_dir, "edgelists", "tensors")
 
-    node_types = ["category", "image", "poi", "review", "service", "user"]
+    node_types = ["category", "poi", "review", "service", "user"] #"image",
     target_type = "user"
     edge_types_files = [f for f in os.listdir(edges_dir) if os.path.isfile(os.path.join(edges_dir, f))]
-    edge_types = [os.path.splitext(f)[0] for f in edge_types_files]
+    all_edge_types = [os.path.splitext(f)[0] for f in edge_types_files]
+    edge_types = [e for e in all_edge_types if keep_edge(e, node_types)]
 
     data = HeteroData()
 

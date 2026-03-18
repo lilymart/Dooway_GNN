@@ -117,9 +117,11 @@ def eval_node_classifier_multilabel(
         # Extend with multilabel-specific metrics
         report_dict["hamming_loss"] = hamming_loss(y_true, y_pred)
         report_dict["subset_accuracy"] = accuracy_score(y_true, y_pred)
-        report_dict["at_least_1_label"] = at_least_k_accuracy(y_true, y_pred, k=1)
-        report_dict["at_least_3_label"] = at_least_k_accuracy(y_true, y_pred, k=3)
-        report_dict["at_least_5_label"] = at_least_k_accuracy(y_true, y_pred, k=5)
+
+        max_labels_true = int(y_true.sum(axis=1).max())
+        for k in range(1, max_labels_true+1):
+            key = f"at_least_{k}_labels"
+            report_dict[key] = at_least_k_accuracy(y_true, y_pred, k=k)
 
         report_df = pd.DataFrame(report_dict).transpose()
 

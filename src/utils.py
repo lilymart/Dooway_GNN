@@ -6,8 +6,10 @@ import numpy as np
 import pickle
 import os
 import shutil
+import json
 import glob
 import re
+import math
 from statistics import stdev
 import scipy
 from fontTools.ttx import process
@@ -166,6 +168,129 @@ def at_least_k_accuracy(y_true, y_pred, k=1):
     return np.mean(success)
 
 
+
+###### NEW PER ALBERTO
+
+"""
+Saves one classification report (dictionary) as a TXT file.
+File name format: report_seed_<seed>.txt
+"""
+def save_report_to_txt(report_dict, seed, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    filepath = os.path.join(output_dir, f"report_seed_{seed}.txt")
+
+    with open(filepath, "w") as f:
+        for key, value in report_dict.items():
+            f.write(f"{key}: {value}\n")
+
+"""
+Appends one classification report to the master JSONL file.
+Each line is: {"seed": seed, "report": report_dict}
+"""
+def append_report_to_master(report_dict, seed, output_dir, master_file_name="all_reports.jsonl"):
+
+    entry = {"seed": seed, "report": report_dict}
+    master_file = os.path.join(output_dir, master_file_name)
+    with open(master_file, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def process_master_file(output_dir, master_file_name, out_excel_k, out_excel_metrics):
+
+    master_file = os.path.join(output_dir, master_file_name)
+    seeds = []
+    reports = []
+
+    with open(master_file, "r") as f:
+        for line in f:
+            entry = json.loads(line)
+            seeds.append(entry["seed"])
+            reports.append(entry["report"])
+
+    # --------------------------
+    # 2. Flatten each report dict
+    # --------------------------
+    flattened_reports = []
+
+    for rep in reports:
+        flat = {}
+
+        # ---- Extract per-class entries (0,1,2,...)
+        # ignore integer keys; we keep only aggregated metrics (micro/macro/weighted/samples)
+        # but do not crash
+        for key, value in rep.items():
+            if isinstance(key, str) and key.endswith("avg"):
+                # Example: "micro avg": {"precision":..., "recall":..., "f1-score":...}
+                name = key.replace(" avg", "")  # "micro", "macro", "weighted", "samples"
+                flat[f"precision_{name}"] = value.get("precision", None)
+                flat[f"recall_{name}"] = value.get("recall", None)
+                flat[f"f1_{name}"] = value.get("f1-score", None)
+
+            # ---- Extract general metrics
+            elif key in ["hamming_loss", "subset_accuracy"]:
+                flat[key] = value
+
+            # ---- Extract "at_least_k_labels"
+            elif isinstance(key, str) and key.startswith("at_least_"):
+                flat[key] = value
+
+        flattened_reports.append(flat)
+
+    # --------------------------
+    # 3. Convert to DataFrame
+    # --------------------------
+    df = pd.DataFrame(flattened_reports)
+    df["seed"] = seeds
+
+    # ------------------------------------------
+    # 4. Build TABLE 1: at_least_k_labels metrics
+    # ------------------------------------------
+    k_cols = [c for c in df.columns if c.startswith("at_least_")]
+
+    table_k = []
+    for col in k_cols:
+        # Extract k from "at_least_{k}_labels"
+        k = int(col.split("_")[2])
+
+        values = df[col].astype(float).values
+        table_k.append({
+            "model": "our model",
+            "k": k,
+            "mean": np.mean(values),
+            "std": np.std(values, ddof=1)
+        })
+
+    table_k_df = pd.DataFrame(table_k).sort_values("k")
+    table_k_df.to_excel(os.path.join(output_dir, out_excel_k), index=False)
+
+    # ---------------------------------------------------------
+    # 5. Build TABLE 2: general metrics + micro/macro/weighted
+    # ---------------------------------------------------------
+
+    metric_groups = [
+        "hamming_loss",
+        "subset_accuracy",
+        "precision_weighted", "recall_weighted", "f1_weighted",
+        "precision_micro", "recall_micro", "f1_micro",
+        "precision_macro", "recall_macro", "f1_macro",
+    ]
+
+    row = {"model": "our model"}
+
+    for col in metric_groups:
+        if col in df.columns:
+            values = df[col].astype(float).values
+            row[f"{col}_mean"] = np.mean(values)
+            row[f"{col}_std"] = np.std(values, ddof=1)
+        else:
+            # If column missing → fill with NaN
+            row[f"{col}_mean"] = np.nan
+            row[f"{col}_std"] = np.nan
+
+    table_metrics_df = pd.DataFrame([row])
+    table_metrics_df.to_excel(os.path.join(output_dir, out_excel_metrics), index=False)
+
+
 """
 Format a classification report dictionary into a readable string.
 Args:
@@ -223,7 +348,7 @@ def save_classification_report(report_dict, params_str, file_path="results.txt")
     report_str = format_classification_report(report_dict, params_str)
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(report_str + "\n")
-    return report_str  # return so you can also print it
+    return report_str
 
 
 """
@@ -427,8 +552,180 @@ def class_results_to_latex_table(
 
 
 
+# NON COMMENTIAMO... X ALBERTO
+
+def normalize_metric_name(name):
+    """Normalize metric names by collapsing whitespace."""
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
+
+
+def classify_metric(name):
+    """Classify real metric names into logical keys."""
+    n = normalize_metric_name(name).lower()
+
+    if "hamming_loss" in n:
+        return "HAMMING"
+
+    if "f1-score" in n:
+        if "micro" in n:
+            return "F1_MICRO"
+        if "macro" in n:
+            return "F1_MACRO"
+        if "weighted" in n:
+            return "F1_WEIGHTED"
+
+    if "precision" in n and "weighted" in n:
+        return "PREC_W"
+
+    if "recall" in n and "weighted" in n:
+        return "RECALL_W"
+
+    if "precision" in n and "macro" in n:
+        return "PREC_MACRO"
+    if "recall" in n and "macro" in n:
+        return "RECALL_MACRO"
+
+    return None
+
+
+def parse_results_file(filepath):
+    models = {}
+    current_model = None
+
+    # Example: === Aggregati su 5 run: Gradient Boosting ===
+    header_pattern = re.compile(r"Aggregati su \d+ run:\s*(.+?)\s*===")
+
+    # Example:
+    # 2025-11-18 ... | INFO | F1-SCORE  (micro): mean=0.8213 var=0.000024
+    metric_pattern = re.compile(
+        r"\|\s*([A-Za-z0-9_\-\s\(\)]+):\s*mean=([0-9.]+)\s*var=([0-9.]+)"
+    )
+    with open(filepath, "r") as f:
+        for line in f:
+
+            # Header
+            header = header_pattern.search(line)
+            if header:
+                current_model = header.group(1).strip()
+                models[current_model] = {}
+                continue
+
+            # Metric line: extract after last pipe |
+            metric = metric_pattern.search(line)
+            if metric and current_model:
+                raw_name = metric.group(1).strip()
+                mean = float(metric.group(2))
+                var = float(metric.group(3))
+
+                key = classify_metric(raw_name)
+                if key:
+                    models[current_model][key] = (mean, var)
+
+    return models
+
+
+def fmt(mean, var):
+    std = math.sqrt(var)
+    return f"{mean:.4f} $\\pm$ {std:.4f}"
+
+
+def build_tables(filepath, table_type=1):
+    data = parse_results_file(filepath)
+
+    if table_type == 1:
+        latex = [
+            "\\begin{table}[h]",
+            "\\centering",
+            "\\begin{tabular}{lcccc}",
+            "\\hline",
+            "Model & Hamming Loss & F1 (micro) & F1 (macro) & F1 (weighted)\\\\",
+            "\\hline"
+        ]
+
+        for model, m in data.items():
+            latex.append(
+                f"{model} & "
+                f"{fmt(*m['HAMMING'])} & "
+                f"{fmt(*m['F1_MICRO'])} & "
+                f"{fmt(*m['F1_MACRO'])} & "
+                f"{fmt(*m['F1_WEIGHTED'])} \\\\"
+            )
+
+        latex += ["\\hline", "\\end{tabular}", "\\end{table}"]
+        return "\n".join(latex)
+
+    if table_type == 2:
+        latex = [
+            "\\begin{table}[h]",
+            "\\centering",
+            "\\begin{tabular}{lccc}",
+            "\\hline",
+            "Model & Precision (w) & Recall (w) & F1 (w)\\\\",
+            "\\hline"
+        ]
+
+        for model, m in data.items():
+            latex.append(
+                f"{model} & "
+                f"{fmt(*m['PREC_W'])} & "
+                f"{fmt(*m['RECALL_W'])} & "
+                f"{fmt(*m['F1_WEIGHTED'])} \\\\"
+            )
+
+        latex += ["\\hline", "\\end{tabular}", "\\end{table}"]
+        return "\n".join(latex)
+
+    if table_type == 3:
+        latex = [
+            "\\begin{table}[h]",
+            "\\centering",
+            "\\begin{tabular}{lccc}",
+            "\\hline",
+            "Model & Precision (macro) & Recall (macro) & F1 (macro)\\\\",
+            "\\hline"
+        ]
+
+        for model, m in data.items():
+            latex.append(
+                f"{model} & "
+                f"{fmt(*m['PREC_MACRO'])} & "
+                f"{fmt(*m['RECALL_MACRO'])} & "
+                f"{fmt(*m['F1_MACRO'])} \\\\"
+            )
+
+        latex += ["\\hline", "\\end{tabular}", "\\end{table}"]
+        return "\n".join(latex)
+
+
+
+
 if __name__ == "__main__":
-    filepath = os.path.join(get_base_dir(), "Basilicata", "subset", "results", "experiments_results.txt")
+    #filepath = os.path.join(get_base_dir(), "Basilicata", "subset", "results", "experiments_results.txt")
     #res = results_to_latex_row(filepath, filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.005, Dropout:0.3"])
-    res = class_results_to_latex_table(filepath, label_prefix="Noi", filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.001, Dropout:0.3"])
-    print(res)
+    #res = class_results_to_latex_table(filepath, label_prefix="Noi", filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.001, Dropout:0.3"])
+    #print(res)
+
+    """
+    suffix = "4layers" #"ablation"
+    process_master_file(
+        output_dir = "/home/martirano/data/dooway/Basilicata/subset/results",
+        master_file_name=f"all_reports_{suffix}.txt", #.jsonl
+        out_excel_k=f"table_k_{suffix}.xlsx",
+        out_excel_metrics=f"table_metrics_{suffix}.xlsx"
+    )
+    """
+
+    #output_dir = "/home/martirano/data/dooway/Basilicata/subset/results"
+    #competitors_results = "Baseline_Evaluation_new_2_20251118_094248.log"
+    #file_results = os.path.join(output_dir, competitors_results)
+    #table1 = build_tables(file_results, table_type=1)
+    #print(table1)
+
+    #table2 = build_tables(file_results, table_type=2)
+    #print(table2)
+
+    #table3 = build_tables(file_results, table_type=3)
+    #print(table3)
+
+
