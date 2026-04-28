@@ -19,7 +19,7 @@ def keep_edge(edge_type, node_types):
     return src in node_types and dst in node_types
 
 
-def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, multilabel=True, max_k=8, fixed_test_set=False, experts_test_set=False, seed=42):
+def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, multilabel=True, max_k=8, fixed_test_set=False, experts_test_set=False, seed=42, robustness=100):
 
     base_dir = os.path.join(get_base_dir(), dataset_name)
     if subset:
@@ -111,7 +111,7 @@ def load_heterodata(dataset_name="Basilicata", subset=True, feats_dim=None, mult
 
         #transform = T.RandomNodeSplit(num_val=val_ratio, num_test=0.15)
         #data = transform(data)
-        df = pd.read_parquet(os.path.join(base_dir, f"split_flags_{seed}.parquet"))
+        df = pd.read_parquet(os.path.join(base_dir, f"split_flags_{seed}", f"split_flags_{seed}_{robustness}.parquet"))
         data[target_type].train_mask = torch.tensor(df["train"].to_numpy(), dtype=torch.bool)
         data[target_type].val_mask = torch.tensor(df["validation"].to_numpy(), dtype=torch.bool)
         data[target_type].test_mask = torch.tensor(df["test"].to_numpy(), dtype=torch.bool)

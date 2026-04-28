@@ -94,6 +94,7 @@ if __name__ == "__main__":
     #report_str = save_classification_report(report_dict, params_str, os.path.join(results_dir, "experiments_results.txt"))
     #print(report_str)
     # NEW PER ALBERTO
+    #TODO add robustness
     save_report_to_txt(report_dict, seed, results_dir)
     append_report_to_master(report_dict, seed, results_dir)
 

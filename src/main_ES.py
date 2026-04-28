@@ -51,6 +51,8 @@ if __name__ == "__main__":
                         help="Dropout probability")
     parser.add_argument("--learning_rate", type=float, default=0.005,
                         help="Learning rate")
+    parser.add_argument("--robustness", type=int, default=100,
+                        help="Percentage of training set")
     parser.add_argument("--results_dir", type=str, default=os.path.join(os.getcwd(), "results"),
                         help="Path (directory) to store results")
 
@@ -65,6 +67,7 @@ if __name__ == "__main__":
     hidden_channels = args.hidden_channels
     dropout = args.dropout
     learning_rate = args.learning_rate
+    robustness = args.robustness
     results_dir = args.results_dir
     embeddings_dir = None
 
@@ -74,7 +77,7 @@ if __name__ == "__main__":
     fixed_test_set = False
     experts_test_set = False
     max_k = 8
-    data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, max_k= max_k, fixed_test_set=fixed_test_set, experts_test_set=experts_test_set, seed=seed)
+    data = load_heterodata(dataset_name=dataset_name, subset=True, feats_dim=feats_dim, multilabel=multilabel, max_k= max_k, fixed_test_set=fixed_test_set, experts_test_set=experts_test_set, seed=seed, robustness=robustness)
 
     if multilabel:
         num_classes = data[target_type].y.size(1)
@@ -126,8 +129,8 @@ if __name__ == "__main__":
     #report_str = save_classification_report(report_dict, params_str, os.path.join(results_dir, "experiments_results.txt"))
     #print(report_str)
     # NEW PER ALBERTO
-    save_report_to_txt(report_dict, seed, results_dir)
-    append_report_to_master(report_dict, seed, results_dir)
+    save_report_to_txt(report_dict, seed, robustness, results_dir)
+    append_report_to_master(report_dict, seed, robustness, results_dir)
 
     # Save target embeddings
     model.eval()

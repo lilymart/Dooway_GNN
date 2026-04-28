@@ -175,9 +175,9 @@ def at_least_k_accuracy(y_true, y_pred, k=1):
 Saves one classification report (dictionary) as a TXT file.
 File name format: report_seed_<seed>.txt
 """
-def save_report_to_txt(report_dict, seed, output_dir):
+def save_report_to_txt(report_dict, seed, robustness, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, f"report_seed_{seed}.txt")
+    filepath = os.path.join(output_dir, f"report_seed_{seed}_{robustness}.txt")
 
     with open(filepath, "w") as f:
         for key, value in report_dict.items():
@@ -185,17 +185,124 @@ def save_report_to_txt(report_dict, seed, output_dir):
 
 """
 Appends one classification report to the master JSONL file.
-Each line is: {"seed": seed, "report": report_dict}
+Each line is: {"seed": seed, "robustness":robustness, "report": report_dict}
 """
-def append_report_to_master(report_dict, seed, output_dir, master_file_name="all_reports.jsonl"):
+def append_report_to_master(report_dict, seed, robustness, output_dir, master_file_name="all_reports.jsonl"):
 
-    entry = {"seed": seed, "report": report_dict}
+    entry = {"seed": seed, "robustness":robustness, "report": report_dict}
     master_file = os.path.join(output_dir, master_file_name)
     with open(master_file, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-
 def process_master_file(output_dir, master_file_name, out_excel_k, out_excel_metrics):
+
+    master_file = os.path.join(output_dir, master_file_name)
+    entries = []
+
+    with open(master_file, "r") as f:
+        for line in f:
+            entry = json.loads(line)
+            entries.append(entry)
+
+    # --------------------------
+    # 2. Flatten reports + keep metadata
+    # --------------------------
+    flattened_reports = []
+
+    for entry in entries:
+        rep = entry["report"]
+        flat = {
+            "seed": entry["seed"],
+            "robustness": entry["robustness"]
+        }
+
+        for key, value in rep.items():
+
+            # aggregated metrics
+            if isinstance(key, str) and key.endswith("avg"):
+                # Example: "micro avg": {"precision":..., "recall":..., "f1-score":...}
+                name = key.replace(" avg", "")  # "micro", "macro", "weighted", "samples"
+                flat[f"precision_{name}"] = value.get("precision", None)
+                flat[f"recall_{name}"] = value.get("recall", None)
+                flat[f"f1_{name}"] = value.get("f1-score", None)
+
+            # ---- general metrics
+            elif key in ["hamming_loss", "subset_accuracy"]:
+                flat[key] = value
+
+            # ---- "at_least_k_labels"
+            elif isinstance(key, str) and key.startswith("at_least_"):
+                flat[key] = value
+
+        flattened_reports.append(flat)
+
+    # --------------------------
+    # 3. Convert to DataFrame
+    # --------------------------
+    df = pd.DataFrame(flattened_reports)
+
+    # ------------------------------------------
+    # 4. Build TABLE 1: at_least_k_labels metrics grouped by robustness
+    # ------------------------------------------
+    k_cols = [c for c in df.columns if c.startswith("at_least_")]
+
+    table_k = []
+
+    for robustness_value, group in df.groupby("robustness"):
+        for col in k_cols:
+            # Extract k from "at_least_{k}_labels"
+            k = int(col.split("_")[2])
+
+            values = group[col].astype(float).values
+            table_k.append({
+                "model": "our model",
+                "robustness": robustness_value,
+                "k": k,
+                "mean": np.mean(values),
+                "std": np.std(values, ddof=1)
+            })
+
+    table_k_df = pd.DataFrame(table_k).sort_values(["robustness", "k"])
+    table_k_df.to_excel(os.path.join(output_dir, out_excel_k), index=False)
+
+    # ---------------------------------------------------------
+    # 5. Build TABLE 2: general metrics + micro/macro/weighted grouped by robustness
+    # ---------------------------------------------------------
+
+    metric_groups = [
+        "hamming_loss",
+        "subset_accuracy",
+        "precision_weighted", "recall_weighted", "f1_weighted",
+        "precision_micro", "recall_micro", "f1_micro",
+        "precision_macro", "recall_macro", "f1_macro",
+    ]
+
+    rows = []
+
+    for robustness_value, group in df.groupby("robustness"):
+
+        row = {
+            "model": "our model",
+            "robustness": robustness_value
+        }
+
+        for col in metric_groups:
+            if col in group.columns:
+                values = group[col].astype(float).values
+                row[f"{col}_mean"] = np.mean(values)
+                row[f"{col}_std"] = np.std(values, ddof=1)
+            else:
+                # If column missing → fill with NaN
+                row[f"{col}_mean"] = np.nan
+                row[f"{col}_std"] = np.nan
+
+        rows.append(row)
+
+    table_metrics_df = pd.DataFrame(rows).sort_values("robustness")
+    table_metrics_df.to_excel(os.path.join(output_dir, out_excel_metrics), index=False)
+
+
+def process_master_file_old(output_dir, master_file_name, out_excel_k, out_excel_metrics):
 
     master_file = os.path.join(output_dir, master_file_name)
     seeds = []
@@ -706,15 +813,15 @@ if __name__ == "__main__":
     #res = class_results_to_latex_table(filepath, label_prefix="Noi", filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.001, Dropout:0.3"])
     #print(res)
 
-    """
-    suffix = "4layers" #"ablation"
+
+    suffix = "robustness" #"ablation"
     process_master_file(
         output_dir = "/home/martirano/data/dooway/Basilicata/subset/results",
         master_file_name=f"all_reports_{suffix}.txt", #.jsonl
         out_excel_k=f"table_k_{suffix}.xlsx",
         out_excel_metrics=f"table_metrics_{suffix}.xlsx"
     )
-    """
+
 
     #output_dir = "/home/martirano/data/dooway/Basilicata/subset/results"
     #competitors_results = "Baseline_Evaluation_new_2_20251118_094248.log"

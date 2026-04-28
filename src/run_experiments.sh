@@ -13,13 +13,18 @@ learning_rate=0.005
 
 training_seeds=(42 96 25 2025 123)
 
-results_dir="/home/martirano/data/dooway/$dataset_name/subset/results"
+robustness=(10 20 40 60 80 100)
+
+results_dir="/home/martirano/data/dooway/$dataset_name/subset/results/robustness"
 
 
 for seed in "${training_seeds[@]}"
 do
     echo "### Running experiment with seed: $seed ###"
-     python src/main_ES.py \
-        --dataset_name "$dataset_name" --seed "$seed" --num_layers "$num_layers" --hidden_channels "$hidden_channels" --learning_rate "$learning_rate" --results_dir "$results_dir"
+    for perc in "${robustness[@]}"
+    do
+      python src/main_ES.py \
+          --dataset_name "$dataset_name" --seed "$seed" --num_layers "$num_layers" --hidden_channels "$hidden_channels" --learning_rate "$learning_rate" --robusteness "$perc" --results_dir "$results_dir"
     done
+done
 
