@@ -32,7 +32,7 @@ LANTERN is not tied to the DOOWAY dataset and can be applied to other heterogene
 
 The current data loader expects a `heterodata/` directory organized as follows:
 
-```text
+```
 heterodata/
 ├── node_features/
 │   └── tensors/
@@ -40,6 +40,7 @@ heterodata/
 │   └── tensors/
 └── edgeattrs/
     └── tensors/
+```
 
 Node features, graph connectivity, and optional edge attributes are stored separately and assembled according to the heterogeneous node and relation schema.
 The loader converts these inputs into a PyTorch Geometric *HeteroData* object used by the training pipeline. This loading procedure reflects the current implementation and can be adapted to support different input formats or preprocessing pipelines.
