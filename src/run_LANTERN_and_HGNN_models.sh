@@ -9,7 +9,7 @@ dropout=0.3
 learning_rate=0.001
 
 training_seeds=(42 96 25 2025 123)
-models=("LANTERN enhanced" "HAN" "HGT" "HGT_single_head" "SimpleHGN")
+models=("LANTERN" "HAN" "HGT" "HGT_single_head" "SimpleHGN")
 
 results_root="/home/jovyan/data/dooway/$dataset_name/subset/results/competitors"
 
