@@ -3,13 +3,13 @@
 export PYTHONPATH=$PYTHONPATH:/Projects/Dooway_GNN/
 
 dataset_name="Basilicata"
-num_layers=4 #3
+num_layers=4
 hidden_channels=64
 dropout=0.3
 learning_rate=0.001
 
 training_seeds=(42 96 25 2025 123)
-models=("LANTERN enhanced" "HGT" "HGT_single_head" "SimpleHGN") #"HAN"
+models=("LANTERN enhanced" "HAN" "HGT" "HGT_single_head" "SimpleHGN")
 
 results_root="/home/jovyan/data/dooway/$dataset_name/subset/results/competitors"
 
