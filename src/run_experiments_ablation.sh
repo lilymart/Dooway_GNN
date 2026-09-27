@@ -2,11 +2,11 @@
 
 export PYTHONPATH=$PYTHONPATH:/Projects/Dooway_GNN/
 
-dataset_name="Basilicata" #1
+dataset_name="Basilicata"
 feats_dim="256"
-target_type="user" #sys.argv[3]
+target_type="user"
 multilabel="true"
-num_layers=3 #2 #sys.argv[5]
+num_layers=4
 hidden_channels=64
 dropout=0.3
 learning_rate=0.001 #0.001
