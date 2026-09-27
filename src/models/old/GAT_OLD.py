@@ -24,17 +24,19 @@ class My_GAT(torch.nn.Module):
                                     dropout=dropout))  # Change out_channels to hidden_channels
         self.lins.append(Linear(-1, hidden_channels))  # Change out_channels to hidden_channels
 
-        self.final_conv = GATv2Conv((-1, -1), out_channels, add_self_loops=False,
-                                    dropout=dropout)  # Add final GAT layer for classification
-        self.final_lin = Linear(-1,   out_channels)  # Add final linear layer for classification
+        # REMOVED self.final_conv = GATv2Conv((-1, -1), out_channels, add_self_loops=False, dropout=dropout)  # Add final GAT layer for classification
+        # REMOVED self.final_lin = Linear(-1,   out_channels)  # Add final linear layer for classification
+
+        self.classifier = Linear(hidden_channels, out_channels) # ADDED
  
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, edge_attr_dict=None):
         for i in range(self.num_layers - 1):
             x = self.convs[i](x, edge_index) + self.lins[i](x.relu())
             x = x.relu()
 
         # Save target_type embeddings before the final layer
-        self.embeddings = self.convs[-1](x, edge_index) + self.lins[-1](x.relu())
+        # REMOVED self.embeddings = self.convs[-1](x, edge_index) + self.lins[-1](x.relu())
+        x = self.classifier(self.embeddings) # ADDED
 
         # Last layer (no ReLU after the last convolution)
         x = self.final_conv(self.embeddings, edge_index) + self.final_lin(self.embeddings.relu())

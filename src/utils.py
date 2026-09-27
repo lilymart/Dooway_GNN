@@ -27,7 +27,8 @@ def set_random_seed(seed):
 
 
 def get_base_dir():
-    return '/home/martirano/data/dooway'
+    #return '/home/martirano/data/dooway'
+    return "/home/jovyan/data/dooway"
 
 
 def get_device():
@@ -123,6 +124,23 @@ def compute_pos_weights_multilabel(targets: torch.Tensor) -> torch.Tensor:
     return pos_weight
 
 
+def compute_class_weights_multilabel(targets):
+    pos_counts = targets.sum(dim=0)
+    neg_counts = targets.size(0) - pos_counts
+
+    safe_pos_counts = pos_counts.clone()
+    safe_pos_counts[safe_pos_counts == 0] = 1
+
+    class_weight = neg_counts / safe_pos_counts
+    class_weight = torch.clamp(class_weight, max=50.0)
+
+    # This normalization makes sense for class-wise weights:
+    # it keeps the average loss scale approximately unchanged.
+    class_weight = class_weight / class_weight.mean()
+
+    return class_weight
+
+
 
 
 
@@ -175,9 +193,9 @@ def at_least_k_accuracy(y_true, y_pred, k=1):
 Saves one classification report (dictionary) as a TXT file.
 File name format: report_seed_<seed>.txt
 """
-def save_report_to_txt(report_dict, seed, robustness, output_dir):
+def save_report_to_txt(report_dict, seed, parameter_name, parameter_value, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, f"report_seed_{seed}_{robustness}.txt")
+    filepath = os.path.join(output_dir, f"report_seed_{seed}_{parameter_name}{parameter_value}.txt")
 
     with open(filepath, "w") as f:
         for key, value in report_dict.items():
@@ -187,9 +205,9 @@ def save_report_to_txt(report_dict, seed, robustness, output_dir):
 Appends one classification report to the master JSONL file.
 Each line is: {"seed": seed, "robustness":robustness, "report": report_dict}
 """
-def append_report_to_master(report_dict, seed, robustness, output_dir, master_file_name="all_reports.jsonl"):
+def append_report_to_master(report_dict, seed, parameter_name, parameter_value, output_dir, master_file_name="all_reports.jsonl"):
 
-    entry = {"seed": seed, "robustness":robustness, "report": report_dict}
+    entry = {"seed": seed, parameter_name:parameter_value, "report": report_dict}
     master_file = os.path.join(output_dir, master_file_name)
     with open(master_file, "a") as f:
         f.write(json.dumps(entry) + "\n")
@@ -807,13 +825,144 @@ def build_tables(filepath, table_type=1):
 
 
 
+def reports_to_excel(infile, outfile):
+    common_dir = os.path.join(get_base_dir(), "Basilicata","subset", "results", "ablation_tracker")
+    input_file = os.path.join(common_dir, infile)
+    output_file = os.path.join(common_dir, outfile)
+
+    rows = []
+
+    with open(input_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            result = json.loads(line)
+
+            seed = result["seed"]
+            use_attrs = result.get("use_attrs")
+            report = result["report"]
+
+            row = {
+                "seed": seed,
+                "use_attrs": use_attrs,
+
+                # Main classification metrics
+                "HL": report["hamming_loss"],
+                "F1-micro": report["micro avg"]["f1-score"],
+                "F1-macro": report["macro avg"]["f1-score"],
+                "F1-weighted": report["weighted avg"]["f1-score"],
+
+                # Precision / recall
+                "Prec-micro": report["micro avg"]["precision"],
+                "Rec-micro": report["micro avg"]["recall"],
+
+                "Prec-macro": report["macro avg"]["precision"],
+                "Rec-macro": report["macro avg"]["recall"],
+
+                "Prec-weighted": report["weighted avg"]["precision"],
+                "Rec-weighted": report["weighted avg"]["recall"],
+
+                # Other metrics
+                "Subset accuracy": report["subset_accuracy"],
+
+                # Training / computational cost
+                "Epochs": report.get("epochs_trained"),
+                "FLOPs-fwd": report.get("FLOPs_fwd"),
+                "FLOPs-bwd": report.get("FLOPs_bwd"),
+                "FLOPs-tot": report.get("FLOPs_tot"),
+                "BOPs-fwd": report.get("BOPs_fwd"),
+                "BOPs-bwd": report.get("BOPs_bwd"),
+                "BOPs-tot": report.get("BOPs_tot"),
+            }
+
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # ---------------------------------------------------------
+    # Mean ± standard deviation across seeds
+    # ---------------------------------------------------------
+
+    final_row = {
+        "seed": "Mean ± std",
+        "use_attrs": (
+            df["use_attrs"].iloc[0]
+            if df["use_attrs"].nunique() == 1
+            else ""
+        ),
+    }
+
+    numeric_columns = [
+        col for col in df.columns
+        if col not in ["seed", "use_attrs"]
+    ]
+
+    for col in numeric_columns:
+        values = pd.to_numeric(df[col], errors="coerce")
+
+        mean = values.mean()
+        std = values.std(ddof=1)
+
+        # Scientific notation for computational cost
+        if "FLOPs" in col or "BOPs" in col:
+            final_row[col] = f"{mean:.3e} ± {std:.3e}"
+
+        # Epochs
+        elif col == "Epochs":
+            final_row[col] = f"{mean:.1f} ± {std:.1f}"
+
+        # Classification metrics
+        else:
+            final_row[col] = f"{mean:.4f} ± {std:.4f}"
+
+    df_final = pd.concat(
+        [df, pd.DataFrame([final_row])],
+        ignore_index=True
+    )
+
+    # ---------------------------------------------------------
+    # Save Excel
+    # ---------------------------------------------------------
+
+    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+        df_final.to_excel(
+            writer,
+            sheet_name="Summary",
+            index=False
+        )
+
+        worksheet = writer.sheets["Summary"]
+
+        # Freeze header
+        worksheet.freeze_panes = "A2"
+
+        # Basic column widths
+        for column in worksheet.columns:
+            max_length = max(
+                len(str(cell.value)) if cell.value is not None else 0
+                for cell in column
+            )
+
+            worksheet.column_dimensions[
+                column[0].column_letter
+            ].width = min(max_length + 2, 25)
+
+    print(f"Saved: {output_file}")
+
+    return df_final
+
+
+
+
 if __name__ == "__main__":
     #filepath = os.path.join(get_base_dir(), "Basilicata", "subset", "results", "experiments_results.txt")
     #res = results_to_latex_row(filepath, filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.005, Dropout:0.3"])
     #res = class_results_to_latex_table(filepath, label_prefix="Noi", filter_keywords=["Num layers:3, Hidden channels:64, Learning rate:0.001, Dropout:0.3"])
     #print(res)
 
-
+    """
     suffix = "robustness" #"ablation"
     process_master_file(
         output_dir = "/home/martirano/data/dooway/Basilicata/subset/results",
@@ -821,6 +970,9 @@ if __name__ == "__main__":
         out_excel_k=f"table_k_{suffix}.xlsx",
         out_excel_metrics=f"table_metrics_{suffix}.xlsx"
     )
+    """
+    print("ciao")
+    reports_to_excel("all_reports.jsonl","all_reports_summary.xlsx")
 
 
     #output_dir = "/home/martirano/data/dooway/Basilicata/subset/results"
