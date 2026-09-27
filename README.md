@@ -55,9 +55,9 @@ For training LANTERN, you can run the script `run_LANTERN_and_HGNN_models.sh` sp
 - *multilabel*: boolean indicating whether the prediction task is multi-label (`true`/`false`).
 - *use_attrs*: boolean indicating whether node attributes are used as input features (`true`/`false`).
 - *use_imgs*: boolean indicating whether visual features are included when available (`true`/`false`).
-- *seed*: integer specifying the random seed used for data splitting, model initialization, and training.
-- *num_layers*: integer specifying the number of heterogeneous GNN layers.
-- *hidden_channels*: integer specifying the dimensionality of the hidden node representations (default: `64`).
+- *seed*: integer specifying the random seed used for data splitting, model initialization, and training (default: `64`).
+- *num_layers*: integer specifying the number of heterogeneous GNN layers (default: `4`)
+2- *hidden_channels*: integer specifying the dimensionality of the hidden node representations (default: `64`).
 - *dropout*: float specifying the dropout probability applied during training (default: `0.3`).
 - *learning_rate*: float specifying the optimizer learning rate (default: `0.001`).
 - *robustness*: parameter controlling the robustness experiment, i.e., the amount of training supervision retained when evaluating sensitivity to reduced label availability (default: `100`).
