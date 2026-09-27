@@ -12,7 +12,7 @@ from floppy import FLOPpyTracker
 
 import warnings
 
-from src.models.GAT_enhanced import My_GAT_enhanced
+from src.models.LANTERN import My_GAT_enhanced
 
 warnings.filterwarnings("ignore")
 
