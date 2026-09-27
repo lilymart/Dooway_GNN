@@ -114,7 +114,7 @@ if __name__ == "__main__":
     # Model
     #model = My_GAT(hidden_channels=hidden_channels, out_channels=num_classes, dropout=dropout, num_layers=num_layers) #hidden_channels=64
     #model = to_hetero(model, data.metadata(), aggr='sum')
-    if model_name == "LANTERN enhanced":
+    if model_name == "LANTERN":
         model = My_GAT_enhanced(
             metadata=data.metadata(),
             target_type=target_type,
@@ -125,15 +125,6 @@ if __name__ == "__main__":
             heads=1,
             edge_attr_dims=edge_attr_dims,
         )
-
-    elif model_name == "LANTERN":
-        model = My_GAT(
-            hidden_channels=hidden_channels,
-            out_channels=num_classes,
-            dropout=dropout,
-            num_layers=num_layers,
-        )
-        model = to_hetero(model, data.metadata(), aggr='sum')
     elif model_name == "HAN":
         model = HAN(
             metadata=data.metadata(),
@@ -164,7 +155,7 @@ if __name__ == "__main__":
             num_layers=num_layers,
             heads=8,
         )
-    elif model_name == "SimpleHGN":  # SimpleHGN
+    elif model_name == "SimpleHGN":
         model = SimpleHGN(
             metadata=data.metadata(),
             target_type=target_type,
@@ -176,7 +167,7 @@ if __name__ == "__main__":
             edge_dim=64,
             beta=0.05,
         )
-    else: #
+    else: 
         raise ValueError(f"Unknown model_name: {model_name}. Choose among LANTERN, HAN, HGT, SimpleHGN.")
 
     device = torch.device(get_device() if torch.cuda.is_available() else 'cpu')
@@ -187,11 +178,8 @@ if __name__ == "__main__":
     targets = data[target_type].y
 
     if multilabel:
-        # REMOVED pos_weight = compute_pos_weights_multilabel(targets).float().to(device)
         train_mask = data[target_type].train_mask
         train_targets = targets[train_mask]
-        # OLD 2: pos_weight = compute_pos_weights_multilabel(train_targets).float().to(device)
-        # OLD 2:criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         class_weight = compute_class_weights_multilabel(train_targets).float().to(device)
         criterion = nn.BCEWithLogitsLoss(weight=class_weight)
     else:
@@ -234,9 +222,6 @@ if __name__ == "__main__":
         report_dict = eval_node_classifier_multiclass(model, data, target_type, split="test")
 
 
-    # ============================================================
-    ### aggiunta test ablazione
-
     if multilabel:
         model.eval()
 
@@ -249,9 +234,6 @@ if __name__ == "__main__":
             # Keep only test nodes
             test_mask = data[target_type].test_mask
             test_prob = prob[test_mask].detach().cpu()
-
-            # Also save the node indices, just to verify that
-            # the two experiments are evaluated on exactly the same nodes
             test_idx = torch.where(test_mask)[0].cpu()
 
         os.makedirs(results_dir, exist_ok=True)
@@ -266,10 +248,6 @@ if __name__ == "__main__":
     print(f'f1-weigh: {f1_weighted:.3f}, f1-macro: {f1_macro:.3f}')
     print("ALL METRICS")
 
-    #params_str = f"Num layers:{num_layers}, Hidden channels:{hidden_channels}, Dropout:{dropout}, max k:{max_k}, fixed test set:{fixed_test_set}, experts test set:{experts_test_set}, Seed:{seed}."
-    #report_str = save_classification_report(report_dict, params_str, os.path.join(results_dir, "experiments_results.txt"))
-    #print(report_str)
-    # NEW PER ALBERTO
     save_report_to_txt(report_dict, seed, "use_attrs", use_attrs, results_dir)
     append_report_to_master(report_dict, seed, "use_attrs", use_attrs, results_dir)
 
