@@ -14,7 +14,7 @@ learning_rate=0.001 #0.001
 training_seeds=(42 96 25 2025 123)
 
 use_imgs="false"
-use_attributes=("true" "false") #"false"
+use_attributes=("true" "false")
 
 results_dir="/home/jovyan/data/dooway/$dataset_name/subset/results/ablation"
 
@@ -24,7 +24,7 @@ do
     echo "### Running experiment with seed: $seed ###"
     for use_attrs in "${use_attributes[@]}"
     do
-      python src/main_ES.py \
+      python src/main.py \
           --dataset_name "$dataset_name" --seed "$seed" --num_layers "$num_layers" --hidden_channels "$hidden_channels" --learning_rate "$learning_rate" --use_attrs "$use_attrs" --use_imgs "$use_imgs" --results_dir "$results_dir"
     done
 done
