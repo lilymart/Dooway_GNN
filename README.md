@@ -1,10 +1,12 @@
 Implementation of LANTERN: LM-Assisted graph attention Network for Tourist pERsoNalization. #, as presented in our paper:
 
-#```
-#Comito, C., Falcone, A., Forestiero, A., Martirano, L.,
-#LLM-Assisted Multimodal Graph Attention network for Multilabel Tourist Profiling 
-#Information Fusion (2026).
-#```
+<!--
+```
+Comito, C., Falcone, A., Forestiero, A., Martirano, L.,
+LLM-Assisted Multimodal Graph Attention network for Multilabel Tourist Profiling 
+Information Fusion (2026).
+```
+-->
 
 >Our proposed LANTERN...
 The objective is to ...
