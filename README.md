@@ -47,7 +47,7 @@ The loader converts these inputs into a PyTorch Geometric *HeteroData* object us
 
 
 ## Training and evaluation
-For training LANTERN, run the script main.py specifying the following parameters:
+For training LANTERN, you can run the script `run_LANTERN_and_HGNN_models.sh` specifying the following parameters:
 - *dataset_name*: string specifying the name of the dataset to be processed.
 - *model_name*: string specifying the model to be trained (default: `"LANTERN"`).
 - *feats_dim*: integer specifying the dimensionality of the input node features (default: `256`).
