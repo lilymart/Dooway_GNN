@@ -18,7 +18,7 @@ do
     for seed in "${training_seeds[@]}"
     do
         echo "### Running $model_name with seed: $seed ###"
-        python src/main_ES.py \
+        python src/main.py \
             --model_name "$model_name" \
             --dataset_name "$dataset_name" \
             --seed "$seed" \
