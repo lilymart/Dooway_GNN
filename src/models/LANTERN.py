@@ -159,7 +159,6 @@ class My_GAT_enhanced(torch.nn.Module):
                 edge_attr_dict=edge_attr_dict,
             )
 
-            # EXACTLY as in the original model:
             # ReLU only between hidden layers
             h_dict = {
                 node_type: h.relu()
